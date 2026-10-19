@@ -103,11 +103,13 @@ class Villa extends Model
     public function scopeSearch(Builder $query, ?string $term): Builder
     {
         if (! empty($term)) {
-            return $query->where(function (Builder $q) use ($term): void {
-                $q->where('name', 'like', "%{$term}%")
-                    ->orWhere('code', 'like', "%{$term}%")
-                    ->orWhere('location', 'like', "%{$term}%")
-                    ->orWhere('category', 'like', "%{$term}%");
+            $operator = $query->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+            return $query->where(function (Builder $q) use ($term, $operator): void {
+                $q->where('name', $operator, "%{$term}%")
+                    ->orWhere('code', $operator, "%{$term}%")
+                    ->orWhere('location', $operator, "%{$term}%")
+                    ->orWhere('category', $operator, "%{$term}%");
             });
         }
 

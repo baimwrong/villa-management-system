@@ -55,12 +55,12 @@
                     <div class="row g-3 mb-4">
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-semibold text-secondary">Check-In Date <span class="text-danger">*</span></label>
-                            <input type="date" name="check_in" class="form-control" value="{{ old('check_in', $booking->check_in->toDateString()) }}" required>
+                            <input type="date" name="check_in" id="check_in" class="form-control" value="{{ old('check_in', $booking->check_in->toDateString()) }}" required onchange="calculateCharges()">
                         </div>
 
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-semibold text-secondary">Check-Out Date <span class="text-danger">*</span></label>
-                            <input type="date" name="check_out" class="form-control" value="{{ old('check_out', $booking->check_out->toDateString()) }}" required>
+                            <input type="date" name="check_out" id="check_out" class="form-control" value="{{ old('check_out', $booking->check_out->toDateString()) }}" required onchange="calculateCharges()">
                         </div>
 
                         <div class="col-md-3 col-6">
@@ -78,30 +78,41 @@
                     <div class="row g-3 mb-4">
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-semibold text-secondary">Nightly Rate ($)</label>
-                            <input type="number" step="0.01" name="nightly_rate" class="form-control" value="{{ old('nightly_rate', $booking->nightly_rate) }}" required>
+                            <input type="number" step="0.01" name="nightly_rate" id="nightly_rate" class="form-control" value="{{ old('nightly_rate', $booking->nightly_rate) }}" required oninput="calculateCharges()">
                         </div>
 
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-semibold text-secondary">Cleaning Turn Fee ($)</label>
-                            <input type="number" step="0.01" name="cleaning_fee" class="form-control" value="{{ old('cleaning_fee', $booking->cleaning_fee) }}">
+                            <input type="number" step="0.01" name="cleaning_fee" id="cleaning_fee" class="form-control" value="{{ old('cleaning_fee', $booking->cleaning_fee) }}" oninput="calculateCharges()">
                         </div>
 
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-semibold text-secondary">Service Fee ($)</label>
-                            <input type="number" step="0.01" name="service_fee" class="form-control" value="{{ old('service_fee', $booking->service_fee) }}">
+                            <input type="number" step="0.01" name="service_fee" id="service_fee" class="form-control" value="{{ old('service_fee', $booking->service_fee) }}" oninput="calculateCharges()">
                         </div>
 
                         <div class="col-md-3 col-6">
                             <label class="form-label small fw-semibold text-secondary">Tax Amount ($)</label>
-                            <input type="number" step="0.01" name="tax_amount" class="form-control" value="{{ old('tax_amount', $booking->tax_amount) }}">
+                            <input type="number" step="0.01" name="tax_amount" id="tax_amount" class="form-control" value="{{ old('tax_amount', $booking->tax_amount) }}" oninput="calculateCharges()">
                         </div>
 
-                        <div class="col-md-4">
-                            <label class="form-label small fw-semibold text-secondary">Total Amount ($) <span class="text-danger">*</span></label>
-                            <input type="number" step="0.01" name="total_amount" class="form-control" value="{{ old('total_amount', $booking->total_amount) }}" required>
+                        <!-- Computed Summary Banner -->
+                        <div class="col-12">
+                            <div class="p-3 bg-light rounded-3 d-flex flex-wrap justify-content-between align-items-center">
+                                <div>
+                                    <span class="text-muted small d-block">RECALCULATED TOTAL STAY</span>
+                                    <span class="fs-4 fw-bold text-dark" id="displayTotalStay">{{ $booking->total_nights }} Nights &bull; ${{ number_format($booking->total_amount, 2) }}</span>
+                                </div>
+                                <div>
+                                    <input type="hidden" name="total_amount" id="total_amount" value="{{ old('total_amount', $booking->total_amount) }}">
+                                    <span class="badge bg-warning text-dark px-3 py-2 fs-6">
+                                        Total Payable: $<span id="displayPayable">{{ number_format($booking->total_amount, 2) }}</span>
+                                    </span>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="col-md-4">
+                        <div class="col-md-6">
                             <label class="form-label small fw-semibold text-secondary">Booking Status <span class="text-danger">*</span></label>
                             <select name="status" class="form-select" required>
                                 <option value="confirmed" {{ old('status', $booking->status) == 'confirmed' ? 'selected' : '' }}>Confirmed (Upcoming)</option>
@@ -110,6 +121,11 @@
                                 <option value="cancelled" {{ old('status', $booking->status) == 'cancelled' ? 'selected' : '' }}>Cancelled</option>
                                 <option value="no_show" {{ old('status', $booking->status) == 'no_show' ? 'selected' : '' }}>No Show</option>
                             </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-semibold text-secondary">Paid to Date ($)</label>
+                            <input type="text" class="form-control bg-light" value="${{ number_format($booking->paid_amount, 2) }} (Balance: ${{ number_format($booking->balance_due, 2) }})" readonly>
                         </div>
 
                         <div class="col-12">
@@ -130,3 +146,33 @@
     </div>
 </div>
 @endsection
+
+@push('scripts')
+<script>
+    function calculateCharges() {
+        const inDate = new Date(document.getElementById('check_in').value);
+        const outDate = new Date(document.getElementById('check_out').value);
+
+        let nights = 1;
+        if (outDate > inDate) {
+            const diffTime = Math.abs(outDate - inDate);
+            nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        }
+
+        const rate = parseFloat(document.getElementById('nightly_rate').value) || 0;
+        const cleaning = parseFloat(document.getElementById('cleaning_fee').value) || 0;
+        const service = parseFloat(document.getElementById('service_fee').value) || 0;
+        const tax = parseFloat(document.getElementById('tax_amount').value) || 0;
+
+        const total = (nights * rate) + cleaning + service + tax;
+
+        document.getElementById('total_amount').value = total.toFixed(2);
+        document.getElementById('displayTotalStay').innerText = `${nights} Nights • $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+        document.getElementById('displayPayable').innerText = total.toLocaleString('en-US', {minimumFractionDigits: 2});
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        calculateCharges();
+    });
+</script>
+@endpush

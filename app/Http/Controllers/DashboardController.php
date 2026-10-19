@@ -9,7 +9,6 @@ use App\Models\Payment;
 use App\Models\Villa;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
@@ -20,20 +19,40 @@ class DashboardController extends Controller
         $startOfMonth = Carbon::now()->startOfMonth();
         $endOfMonth = Carbon::now()->endOfMonth();
 
-        $totalVillas = Villa::count();
-        $availableVillas = Villa::where('status', Villa::STATUS_AVAILABLE)->count();
-        $occupiedVillas = Villa::where('status', Villa::STATUS_OCCUPIED)->count();
-        $cleaningVillas = Villa::where('status', Villa::STATUS_CLEANING)->count();
-        $maintenanceVillas = Villa::where('status', Villa::STATUS_MAINTENANCE)->count();
+        $allVillas = Villa::orderBy('code')->get();
+        $totalVillas = $allVillas->count();
+        $availableVillas = $allVillas->where('status', Villa::STATUS_AVAILABLE)->count();
+        $occupiedVillas = $allVillas->where('status', Villa::STATUS_OCCUPIED)->count();
+        $cleaningVillas = $allVillas->where('status', Villa::STATUS_CLEANING)->count();
+        $maintenanceVillas = $allVillas->where('status', Villa::STATUS_MAINTENANCE)->count();
         $occupancyRate = $totalVillas > 0 ? round(($occupiedVillas / $totalVillas) * 100, 1) : 0;
 
         $totalGuests = Guest::count();
         $vipGuestsCount = Guest::vip()->count();
 
-        // Revenue for current month based on completed payments
-        $currentMonthRevenue = (float) Payment::where('status', Payment::STATUS_COMPLETED)
-            ->whereBetween('payment_date', [$startOfMonth, $endOfMonth])
-            ->sum('amount');
+        // 6-month historical revenue (single query instead of N loop queries)
+        $sixMonthsAgo = Carbon::now()->subMonths(5)->startOfMonth();
+        $recentPayments = Payment::where('status', Payment::STATUS_COMPLETED)
+            ->where('payment_date', '>=', $sixMonthsAgo)
+            ->get(['amount', 'payment_date']);
+
+        $chartLabels = [];
+        $chartRevenue = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $monthDate = Carbon::now()->subMonths($i);
+            $monthKey = $monthDate->format('M Y');
+            $mStart = $monthDate->copy()->startOfMonth();
+            $mEnd = $monthDate->copy()->endOfMonth();
+
+            $sum = (float) $recentPayments
+                ->filter(fn ($p) => $p->payment_date >= $mStart && $p->payment_date <= $mEnd)
+                ->sum('amount');
+
+            $chartLabels[] = $monthKey;
+            $chartRevenue[] = $sum;
+        }
+
+        $currentMonthRevenue = (float) ($chartRevenue[5] ?? 0);
 
         // Today Check-ins and Check-outs
         $todayCheckIns = Booking::with(['villa', 'guest'])
@@ -59,31 +78,8 @@ class DashboardController extends Controller
             ->take(5)
             ->get();
 
-        // All villas for the live status matrix
-        $allVillas = Villa::orderBy('code')->get();
-
-        // Monthly revenue history for Chart.js (last 6 months)
-        $chartLabels = [];
-        $chartRevenue = [];
-        for ($i = 5; $i >= 0; $i--) {
-            $monthDate = Carbon::now()->subMonths($i);
-            $monthKey = $monthDate->format('M Y');
-            $mStart = $monthDate->copy()->startOfMonth();
-            $mEnd = $monthDate->copy()->endOfMonth();
-
-            $sum = (float) Payment::where('status', Payment::STATUS_COMPLETED)
-                ->whereBetween('payment_date', [$mStart, $mEnd])
-                ->sum('amount');
-
-            $chartLabels[] = $monthKey;
-            $chartRevenue[] = $sum;
-        }
-
-        // Villa category breakdown
-        $categoryBreakdown = Villa::select('category', DB::raw('count(*) as count'))
-            ->groupBy('category')
-            ->pluck('count', 'category')
-            ->toArray();
+        // Villa category breakdown computed in-memory from loaded villas
+        $categoryBreakdown = $allVillas->groupBy('category')->map->count()->toArray();
 
         return view('dashboard.index', [
             'totalVillas' => $totalVillas,

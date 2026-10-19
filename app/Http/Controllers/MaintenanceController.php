@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Villa;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class MaintenanceController extends Controller
@@ -40,9 +41,15 @@ class MaintenanceController extends Controller
         $villas = Villa::orderBy('code')->get();
         $staffMembers = User::whereIn('role', [User::ROLE_STAFF, User::ROLE_MANAGER])->get();
 
-        $pendingCount = MaintenanceTask::where('status', MaintenanceTask::STATUS_PENDING)->count();
-        $inProgressCount = MaintenanceTask::where('status', MaintenanceTask::STATUS_IN_PROGRESS)->count();
-        $completedCount = MaintenanceTask::where('status', MaintenanceTask::STATUS_COMPLETED)->count();
+        $taskCounts = MaintenanceTask::selectRaw("
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+            SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+        ")->first();
+
+        $pendingCount = (int) ($taskCounts->pending ?? 0);
+        $inProgressCount = (int) ($taskCounts->in_progress ?? 0);
+        $completedCount = (int) ($taskCounts->completed ?? 0);
 
         return view('maintenance.index', [
             'tasks' => $tasks,
@@ -108,23 +115,30 @@ class MaintenanceController extends Controller
         $newStatus = $request->string('status')->toString();
         $updateData = ['status' => $newStatus];
 
-        if ($newStatus === MaintenanceTask::STATUS_COMPLETED) {
-            $updateData['completed_at'] = now();
+        DB::transaction(function () use ($maintenance, $newStatus, $updateData) {
+            if ($newStatus === MaintenanceTask::STATUS_COMPLETED) {
+                $updateData['completed_at'] = now();
 
-            // If the villa was in cleaning or maintenance, restore it to available if no other urgent tasks exist
-            if (in_array($maintenance->villa->status, [Villa::STATUS_CLEANING, Villa::STATUS_MAINTENANCE], true)) {
                 $hasOtherPending = MaintenanceTask::where('villa_id', $maintenance->villa_id)
                     ->where('id', '!=', $maintenance->id)
                     ->whereIn('status', [MaintenanceTask::STATUS_PENDING, MaintenanceTask::STATUS_IN_PROGRESS])
                     ->exists();
 
-                if (! $hasOtherPending) {
-                    $maintenance->villa->update(['status' => Villa::STATUS_AVAILABLE]);
+                // If villa was in cleaning, ONLY restore to available if the completed task was a cleaning task
+                if ($maintenance->villa->status === Villa::STATUS_CLEANING) {
+                    if ($maintenance->task_type === MaintenanceTask::TYPE_CLEANING && ! $hasOtherPending) {
+                        $maintenance->villa->update(['status' => Villa::STATUS_AVAILABLE]);
+                    }
+                } elseif ($maintenance->villa->status === Villa::STATUS_MAINTENANCE) {
+                    // If villa was in maintenance, restore to available if no other tasks remain pending
+                    if (! $hasOtherPending) {
+                        $maintenance->villa->update(['status' => Villa::STATUS_AVAILABLE]);
+                    }
                 }
             }
-        }
 
-        $maintenance->update($updateData);
+            $maintenance->update($updateData);
+        });
 
         return back()->with('success', 'Task status updated to '.ucfirst(str_replace('_', ' ', $newStatus)).'.');
     }

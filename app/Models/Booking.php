@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class Booking extends Model
 {
@@ -103,17 +104,14 @@ class Booking extends Model
 
     public function scopeOverlapping(Builder $query, int $villaId, string $checkIn, string $checkOut, ?int $ignoreBookingId = null): Builder
     {
+        $checkInDate = Carbon::parse($checkIn)->toDateString();
+        $checkOutDate = Carbon::parse($checkOut)->toDateString();
+
         return $query->where('villa_id', $villaId)
             ->whereNotIn('status', [self::STATUS_CANCELLED, self::STATUS_NO_SHOW])
             ->when($ignoreBookingId, fn (Builder $q) => $q->where('id', '!=', $ignoreBookingId))
-            ->where(function (Builder $q) use ($checkIn, $checkOut): void {
-                $q->whereBetween('check_in', [$checkIn, $checkOut])
-                    ->orWhereBetween('check_out', [$checkIn, $checkOut])
-                    ->orWhere(function (Builder $sub) use ($checkIn, $checkOut): void {
-                        $sub->where('check_in', '<=', $checkIn)
-                            ->where('check_out', '>=', $checkOut);
-                    });
-            });
+            ->whereDate('check_in', '<', $checkOutDate)
+            ->whereDate('check_out', '>', $checkInDate);
     }
 
     public function recalculatePaymentStatus(): void

@@ -67,15 +67,25 @@ class Guest extends Model
         return $query->whereIn('vip_level', [self::VIP_VIP, self::VIP_VVIP]);
     }
 
+    public function syncLifetimeMetrics(): void
+    {
+        $this->update([
+            'total_stays' => $this->bookings()->where('bookings.status', Booking::STATUS_CHECKED_OUT)->count(),
+            'total_spent' => (float) $this->payments()->where('payments.status', Payment::STATUS_COMPLETED)->sum('amount'),
+        ]);
+    }
+
     public function scopeSearch(Builder $query, ?string $term): Builder
     {
         if (! empty($term)) {
-            return $query->where(function (Builder $q) use ($term): void {
-                $q->where('first_name', 'like', "%{$term}%")
-                    ->orWhere('last_name', 'like', "%{$term}%")
-                    ->orWhere('email', 'like', "%{$term}%")
-                    ->orWhere('phone', 'like', "%{$term}%")
-                    ->orWhere('nationality', 'like', "%{$term}%");
+            $operator = $query->getConnection()->getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+            return $query->where(function (Builder $q) use ($term, $operator): void {
+                $q->where('first_name', $operator, "%{$term}%")
+                    ->orWhere('last_name', $operator, "%{$term}%")
+                    ->orWhere('email', $operator, "%{$term}%")
+                    ->orWhere('phone', $operator, "%{$term}%")
+                    ->orWhere('nationality', $operator, "%{$term}%");
             });
         }
 

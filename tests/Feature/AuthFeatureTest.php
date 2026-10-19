@@ -80,4 +80,45 @@ class AuthFeatureTest extends TestCase
         $this->assertGuest();
         $response->assertRedirect(route('login'));
     }
+
+    public function test_registration_ignores_supplied_role_and_defaults_to_staff(): void
+    {
+        $response = $this->post(route('register.post'), [
+            'name' => 'Attacker User',
+            'email' => 'attacker@villamanagement.local',
+            'role' => User::ROLE_ADMIN,
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $this->assertAuthenticated();
+        $response->assertRedirect(route('dashboard'));
+        $this->assertDatabaseHas('users', [
+            'email' => 'attacker@villamanagement.local',
+            'role' => User::ROLE_STAFF,
+        ]);
+        $this->assertDatabaseMissing('users', [
+            'email' => 'attacker@villamanagement.local',
+            'role' => User::ROLE_ADMIN,
+        ]);
+    }
+
+    public function test_inactive_users_cannot_authenticate(): void
+    {
+        User::factory()->create([
+            'email' => 'inactive@villamanagement.local',
+            'password' => Hash::make('password123'),
+            'status' => 'inactive',
+        ]);
+
+        $response = $this->post(route('login.post'), [
+            'email' => 'inactive@villamanagement.local',
+            'password' => 'password123',
+        ]);
+
+        $this->assertGuest();
+        $response->assertSessionHasErrors([
+            'email' => 'Your account has been deactivated. Please contact an administrator.',
+        ]);
+    }
 }

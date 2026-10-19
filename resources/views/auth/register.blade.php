@@ -25,19 +25,9 @@
             @enderror
         </div>
 
-        <div class="row mb-3">
-            <div class="col-6">
-                <label for="role" class="form-label small fw-semibold text-secondary">Role Assignment</label>
-                <select name="role" id="role" class="form-select @error('role') is-invalid @enderror">
-                    <option value="staff" selected>Staff / Concierge</option>
-                    <option value="manager">Resort Manager</option>
-                    <option value="admin">System Administrator</option>
-                </select>
-            </div>
-            <div class="col-6">
-                <label for="phone" class="form-label small fw-semibold text-secondary">Phone Number</label>
-                <input type="text" name="phone" id="phone" class="form-control" placeholder="+1 555-0100">
-            </div>
+        <div class="mb-3">
+            <label for="phone" class="form-label small fw-semibold text-secondary">Phone Number</label>
+            <input type="text" name="phone" id="phone" class="form-control" placeholder="+1 555-0100" value="{{ old('phone') }}">
         </div>
 
         <div class="mb-3">

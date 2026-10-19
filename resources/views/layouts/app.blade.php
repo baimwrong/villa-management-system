@@ -298,11 +298,13 @@
                 <span>Housekeeping & Tasks</span>
             </a>
 
-            <div class="nav-category">Financials</div>
-            <a href="{{ route('expenses.index') }}" class="sidebar-link {{ request()->routeIs('expenses.*') ? 'active' : '' }}">
-                <i class="fa-solid fa-file-invoice-dollar"></i>
-                <span>Expenses & Accounts</span>
-            </a>
+            @if(auth()->check() && auth()->user()->isManager())
+                <div class="nav-category">Financials</div>
+                <a href="{{ route('expenses.index') }}" class="sidebar-link {{ request()->routeIs('expenses.*') ? 'active' : '' }}">
+                    <i class="fa-solid fa-file-invoice-dollar"></i>
+                    <span>Expenses & Accounts</span>
+                </a>
+            @endif
 
             @if(auth()->check() && auth()->user()->isAdmin())
                 <div class="nav-category">Administration</div>

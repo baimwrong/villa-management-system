@@ -114,4 +114,108 @@ class BookingFeatureTest extends TestCase
         $response->assertSee('GUEST FOLIO');
         $response->assertSee($booking->booking_code);
     }
+
+    public function test_same_day_turnover_bookings_do_not_conflict(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create(['price_per_night' => 500.00]);
+        $guest1 = Guest::factory()->create();
+        $guest2 = Guest::factory()->create();
+
+        // Booking 1: Nov 1 to Nov 6
+        Booking::factory()->create([
+            'villa_id' => $villa->id,
+            'guest_id' => $guest1->id,
+            'check_in' => '2026-11-01',
+            'check_out' => '2026-11-06',
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        // Booking 2: Nov 6 to Nov 10 (Same-day checkout of Booking 1 and checkin of Booking 2)
+        $response = $this->actingAs($user)->post(route('bookings.store'), [
+            'villa_id' => $villa->id,
+            'guest_id' => $guest2->id,
+            'check_in' => '2026-11-06',
+            'check_out' => '2026-11-10',
+            'adults' => 2,
+            'children' => 0,
+            'nightly_rate' => 500.00,
+            'cleaning_fee' => 50.00,
+            'service_fee' => 50.00,
+            'tax_amount' => 50.00,
+            'total_amount' => 2150.00,
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $booking2 = Booking::where('guest_id', $guest2->id)->where('villa_id', $villa->id)->first();
+        $this->assertNotNull($booking2);
+        $this->assertEquals('2026-11-06', Carbon::parse($booking2->check_in)->toDateString());
+        $this->assertEquals('2026-11-10', Carbon::parse($booking2->check_out)->toDateString());
+    }
+
+    public function test_overlapping_booking_dates_are_rejected(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create();
+        $guest1 = Guest::factory()->create();
+        $guest2 = Guest::factory()->create();
+
+        Booking::factory()->create([
+            'villa_id' => $villa->id,
+            'guest_id' => $guest1->id,
+            'check_in' => '2026-11-01',
+            'check_out' => '2026-11-06',
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        // Attempt overlap: Nov 4 to Nov 8
+        $response = $this->actingAs($user)->post(route('bookings.store'), [
+            'villa_id' => $villa->id,
+            'guest_id' => $guest2->id,
+            'check_in' => '2026-11-04',
+            'check_out' => '2026-11-08',
+            'adults' => 2,
+            'nightly_rate' => 500.00,
+            'total_amount' => 2000.00,
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        $response->assertSessionHasErrors('check_in');
+    }
+
+    public function test_booking_total_amount_is_recalculated_server_side_ignoring_forged_payload(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create();
+        $guest = Guest::factory()->create();
+
+        // 3 nights @ 1000 = 3000, cleaning 100, service 50, tax 150 => true total 3300.00
+        // Client maliciously supplies forged total_amount = 1.00
+        $response = $this->actingAs($user)->post(route('bookings.store'), [
+            'villa_id' => $villa->id,
+            'guest_id' => $guest->id,
+            'check_in' => '2026-12-01',
+            'check_out' => '2026-12-04',
+            'adults' => 2,
+            'children' => 0,
+            'nightly_rate' => 1000.00,
+            'cleaning_fee' => 100.00,
+            'service_fee' => 50.00,
+            'tax_amount' => 150.00,
+            'total_amount' => 1.00,
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('bookings', [
+            'villa_id' => $villa->id,
+            'total_nights' => 3,
+            'total_amount' => 3300.00,
+        ]);
+        $this->assertDatabaseMissing('bookings', [
+            'villa_id' => $villa->id,
+            'total_amount' => 1.00,
+        ]);
+    }
 }

@@ -195,9 +195,11 @@ class BulkImportService
 
         $guest = Guest::where('email', $data['guest_email'])->first();
         if (! $guest) {
-            // Auto create guest if first name is provided or extract from email
-            $firstName = ! empty($data['guest_name']) ? explode(' ', $data['guest_name'])[0] : 'Guest';
-            $lastName = ! empty($data['guest_name']) ? (explode(' ', $data['guest_name'])[1] ?? '') : '';
+            // Auto create guest if name is provided or default
+            $nameParts = ! empty($data['guest_name']) ? explode(' ', trim($data['guest_name']), 2) : ['Guest', ''];
+            $firstName = $nameParts[0];
+            $lastName = $nameParts[1] ?? '';
+
             $guest = Guest::create([
                 'first_name' => $firstName,
                 'last_name' => $lastName,
@@ -212,6 +214,24 @@ class BulkImportService
             throw new \InvalidArgumentException('check_out must be after check_in.');
         }
 
+        $bookingCode = ! empty($data['booking_code'])
+            ? $data['booking_code']
+            : 'BK-'.strtoupper(Str::random(8));
+
+        $existingBooking = Booking::where('booking_code', $bookingCode)->first();
+
+        // Check for double booking conflicts
+        $hasOverlap = Booking::overlapping(
+            $villa->id,
+            $checkIn->toDateString(),
+            $checkOut->toDateString(),
+            $existingBooking?->id
+        )->exists();
+
+        if ($hasOverlap) {
+            throw new \InvalidArgumentException("Villa '{$villa->code}' is already booked or occupied between {$checkIn->toDateString()} and {$checkOut->toDateString()}.");
+        }
+
         $nights = $checkIn->diffInDays($checkOut);
         $nightlyRate = ! empty($data['nightly_rate']) ? (float) $data['nightly_rate'] : (float) $villa->price_per_night;
         $cleaningFee = ! empty($data['cleaning_fee']) ? (float) $data['cleaning_fee'] : (float) $villa->cleaning_fee;
@@ -224,10 +244,6 @@ class BulkImportService
 
         $paidAmount = (float) ($data['paid_amount'] ?? 0);
         $balanceDue = max(0, $totalAmount - $paidAmount);
-
-        $bookingCode = ! empty($data['booking_code'])
-            ? $data['booking_code']
-            : 'BK-'.strtoupper(Str::random(8));
 
         $booking = Booking::updateOrCreate(
             ['booking_code' => $bookingCode],
@@ -266,6 +282,8 @@ class BulkImportService
                 'notes' => 'Imported opening balance payment',
             ]);
         }
+
+        $guest->syncLifetimeMetrics();
     }
 
     /**
@@ -280,7 +298,10 @@ class BulkImportService
         $villaId = null;
         if (! empty($data['villa_code'])) {
             $villa = Villa::where('code', $data['villa_code'])->first();
-            $villaId = $villa?->id;
+            if (! $villa) {
+                throw new \InvalidArgumentException("Villa with code '{$data['villa_code']}' not found.");
+            }
+            $villaId = $villa->id;
         }
 
         Expense::create([
