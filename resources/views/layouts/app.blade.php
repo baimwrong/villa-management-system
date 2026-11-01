@@ -285,9 +285,13 @@
             </a>
 
             <div class="nav-category">Operations</div>
-            <a href="{{ route('bookings.index') }}" class="sidebar-link {{ request()->routeIs('bookings.*') ? 'active' : '' }}">
+            <a href="{{ route('bookings.index') }}" class="sidebar-link {{ request()->routeIs('bookings.index') || request()->routeIs('bookings.show') || request()->routeIs('bookings.create') || request()->routeIs('bookings.edit') ? 'active' : '' }}">
                 <i class="fa-solid fa-calendar-check"></i>
                 <span>Reservations</span>
+            </a>
+            <a href="{{ route('bookings.calendar') }}" class="sidebar-link {{ request()->routeIs('bookings.calendar') ? 'active' : '' }}">
+                <i class="fa-solid fa-calendar-days"></i>
+                <span>Tape Chart</span>
             </a>
             <a href="{{ route('guests.index') }}" class="sidebar-link {{ request()->routeIs('guests.*') ? 'active' : '' }}">
                 <i class="fa-solid fa-users"></i>

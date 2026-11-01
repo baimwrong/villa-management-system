@@ -6,7 +6,8 @@
     <h4 class="fw-bold mb-3 text-dark">Staff & Executive Sign In</h4>
     <p class="text-muted small mb-4">Enter your credentials to access the resort management portal.</p>
 
-    <!-- Quick Demo Credential Fillers -->
+    @if(app()->isLocal() && config('app.debug'))
+    <!-- Quick Demo Credential Fillers (Local / Debug Only) -->
     <div class="card bg-light border-0 mb-4 p-3 rounded-3">
         <div class="d-flex align-items-center justify-content-between mb-2">
             <span class="small fw-bold text-secondary"><i class="fa-solid fa-key me-1 text-warning"></i> Quick Demo Fill:</span>
@@ -24,6 +25,7 @@
             </button>
         </div>
     </div>
+    @endif
 
     <form action="{{ route('login.post') }}" method="POST">
         @csrf
@@ -61,11 +63,13 @@
             <i class="fa-solid fa-arrow-right-to-bracket me-2"></i> Access Management Console
         </button>
 
+        @if(config('auth.registration_enabled', true))
         <div class="text-center">
             <a href="{{ route('register') }}" class="small text-decoration-none text-muted">
                 Need a new staff account? <span class="fw-semibold text-dark">Register here</span>
             </a>
         </div>
+        @endif
     </form>
 @endsection
 

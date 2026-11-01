@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Models\Villa;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -63,6 +64,11 @@ class VillaController extends Controller
         $validated['slug'] = Str::slug($validated['name']).'-'.strtolower($validated['code']);
         $validated['is_featured'] = $request->boolean('is_featured');
 
+        if ($request->hasFile('featured_image')) {
+            $path = $request->file('featured_image')->store('villas', 'public');
+            $validated['featured_image'] = $path;
+        }
+
         $villa = Villa::create($validated);
 
         return redirect()->route('villas.show', $villa)
@@ -111,6 +117,14 @@ class VillaController extends Controller
         $validated['slug'] = Str::slug($validated['name']).'-'.strtolower($validated['code']);
         $validated['is_featured'] = $request->boolean('is_featured');
 
+        if ($request->hasFile('featured_image')) {
+            if ($villa->featured_image && Storage::disk('public')->exists($villa->featured_image)) {
+                Storage::disk('public')->delete($villa->featured_image);
+            }
+            $path = $request->file('featured_image')->store('villas', 'public');
+            $validated['featured_image'] = $path;
+        }
+
         $villa->update($validated);
 
         return redirect()->route('villas.show', $villa)
@@ -130,12 +144,10 @@ class VillaController extends Controller
 
     public function destroy(Villa $villa): RedirectResponse
     {
-        $hasActiveBookings = $villa->bookings()
-            ->whereIn('status', [Booking::STATUS_CONFIRMED, Booking::STATUS_CHECKED_IN])
-            ->exists();
+        $hasBookings = $villa->bookings()->exists();
 
-        if ($hasActiveBookings) {
-            return back()->with('error', "Cannot delete '{$villa->name}' because it has active or upcoming bookings.");
+        if ($hasBookings) {
+            return back()->with('error', "Cannot delete '{$villa->name}' because historical or active reservations are linked to this property.");
         }
 
         $villa->delete();

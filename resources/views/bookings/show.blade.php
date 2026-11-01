@@ -49,6 +49,15 @@
             </button>
         @endif
 
+        <button class="btn btn-gold btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#chargeModal">
+            <i class="fa-solid fa-plus-circle"></i>
+            <span>Post Incidental Charge</span>
+        </button>
+        <button class="btn btn-outline-dark btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#paymentModal">
+            <i class="fa-solid fa-credit-card"></i>
+            <span>Add Payment</span>
+        </button>
+
         <a href="{{ route('bookings.edit', $booking) }}" class="btn btn-outline-secondary btn-sm">
             <i class="fa-solid fa-pen-to-square"></i>
         </a>
@@ -106,6 +115,63 @@
                         <p class="mb-0 small">{{ $booking->special_notes }}</p>
                     </div>
                 @endif
+            </div>
+        </div>
+
+        <!-- Incidental & Concierge Charges Table -->
+        <div class="card card-luxury mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <strong><i class="fa-solid fa-bell-concierge text-warning me-2"></i>In-Stay Incidentals & Extra Charges</strong>
+                <button class="btn btn-sm btn-outline-dark py-0 px-2" data-bs-toggle="modal" data-bs-target="#chargeModal">
+                    + Post Charge
+                </button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light small">
+                        <tr>
+                            <th>Charge Description</th>
+                            <th>Category</th>
+                            <th>Date / Time</th>
+                            <th>Amount</th>
+                            <th>Logged By</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($booking->extraCharges as $charge)
+                            <tr>
+                                <td>
+                                    <span class="fw-bold text-dark d-block small">{{ $charge->title }}</span>
+                                    @if($charge->notes)
+                                        <span class="text-muted small" style="font-size: 0.75rem;">{{ $charge->notes }}</span>
+                                    @endif
+                                </td>
+                                <td>
+                                    <span class="badge {{ $charge->getCategoryBadgeClass() }} text-capitalize">
+                                        {{ $charge->category }}
+                                    </span>
+                                </td>
+                                <td class="small">{{ $charge->charged_at ? $charge->charged_at->format('M d, Y H:i') : $charge->created_at->format('M d, Y') }}</td>
+                                <td class="fw-bold text-dark">${{ number_format($charge->amount, 2) }}</td>
+                                <td class="text-muted small">{{ $charge->creator?->name ?? 'Staff' }}</td>
+                                <td class="text-end">
+                                    <form action="{{ route('bookings.charges.destroy', [$booking, $charge]) }}" method="POST" onsubmit="return confirm('Void this charge from folio?');" class="d-inline">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Void charge">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="6" class="text-center py-3 text-muted small">No incidental or concierge charges posted to this stay.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -176,6 +242,13 @@
                     <span class="text-muted">Hospitality Tax</span>
                     <span class="fw-bold text-dark">${{ number_format($booking->tax_amount, 2) }}</span>
                 </div>
+
+                @if($booking->extraCharges->count() > 0)
+                    <div class="d-flex justify-content-between small mb-2 text-warning-emphasis">
+                        <span><i class="fa-solid fa-plus-circle me-1"></i>In-Stay Incidentals ({{ $booking->extraCharges->count() }})</span>
+                        <span class="fw-bold">${{ number_format($booking->extraCharges->sum('amount'), 2) }}</span>
+                    </div>
+                @endif
 
                 <hr>
 
@@ -267,6 +340,54 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-gold">Confirm Payment</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Post Incidental Charge -->
+<div class="modal fade" id="chargeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form action="{{ route('bookings.charges.store', $booking) }}" method="POST">
+                @csrf
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold"><i class="fa-solid fa-bell-concierge text-warning me-2"></i>Post Folio Charge</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-secondary">Charge Title / Service <span class="text-danger">*</span></label>
+                        <input type="text" name="title" class="form-control" placeholder="e.g. In-Villa Dining & Vintage Wine" required>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold text-secondary">Category <span class="text-danger">*</span></label>
+                            <select name="category" class="form-select" required>
+                                <option value="dining">In-Villa Dining</option>
+                                <option value="spa">Spa & Wellness</option>
+                                <option value="transportation">Airport / Yacht Transfer</option>
+                                <option value="experience">Excursion / Experience</option>
+                                <option value="damage">Damage / Replacement</option>
+                                <option value="other" selected>General Incidental</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold text-secondary">Amount ($) <span class="text-danger">*</span></label>
+                            <input type="number" step="0.01" name="amount" min="0.01" max="50000" class="form-control" placeholder="0.00" required>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-secondary">Notes / Order Reference</label>
+                        <textarea name="notes" rows="2" class="form-control" placeholder="Ticket number, butler notes, guest signature ref..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-gold">Post to Folio</button>
                 </div>
             </form>
         </div>

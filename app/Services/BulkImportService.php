@@ -234,13 +234,14 @@ class BulkImportService
 
         $nights = $checkIn->diffInDays($checkOut);
         $nightlyRate = ! empty($data['nightly_rate']) ? (float) $data['nightly_rate'] : (float) $villa->price_per_night;
+        $stayTariffs = $villa->calculateStayTotal($checkIn, $checkOut, $nightlyRate);
         $cleaningFee = ! empty($data['cleaning_fee']) ? (float) $data['cleaning_fee'] : (float) $villa->cleaning_fee;
         $serviceFee = (float) ($data['service_fee'] ?? 0);
         $taxAmount = (float) ($data['tax_amount'] ?? 0);
 
         $totalAmount = ! empty($data['total_amount'])
             ? (float) $data['total_amount']
-            : ($nights * $nightlyRate + $cleaningFee + $serviceFee + $taxAmount);
+            : ($stayTariffs['accommodation_total'] + $cleaningFee + $serviceFee + $taxAmount);
 
         $paidAmount = (float) ($data['paid_amount'] ?? 0);
         $balanceDue = max(0, $totalAmount - $paidAmount);

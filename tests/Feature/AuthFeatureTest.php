@@ -121,4 +121,21 @@ class AuthFeatureTest extends TestCase
             'email' => 'Your account has been deactivated. Please contact an administrator.',
         ]);
     }
+
+    public function test_registration_is_blocked_when_disabled(): void
+    {
+        config(['auth.registration_enabled' => false]);
+
+        $response = $this->get(route('register'));
+        $response->assertStatus(403);
+
+        $postResponse = $this->post(route('register.post'), [
+            'name' => 'Blocked Staff',
+            'email' => 'blocked@villamanagement.local',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+        $postResponse->assertStatus(403);
+        $this->assertDatabaseMissing('users', ['email' => 'blocked@villamanagement.local']);
+    }
 }

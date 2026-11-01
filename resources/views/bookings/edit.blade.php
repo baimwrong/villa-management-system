@@ -30,9 +30,13 @@
                     <div class="row g-3 mb-4">
                         <div class="col-md-6">
                             <label class="form-label small fw-semibold text-secondary">Assigned Villa <span class="text-danger">*</span></label>
-                            <select name="villa_id" class="form-select" required>
+                            <select name="villa_id" id="villa_id" class="form-select" required onchange="calculateCharges()">
                                 @foreach($villas as $villa)
-                                    <option value="{{ $villa->id }}" {{ old('villa_id', $booking->villa_id) == $villa->id ? 'selected' : '' }}>
+                                    <option value="{{ $villa->id }}"
+                                        data-price="{{ $villa->price_per_night }}"
+                                        data-weekend-price="{{ $villa->weekend_price_per_night }}"
+                                        data-cleaning="{{ $villa->cleaning_fee }}"
+                                        {{ old('villa_id', $booking->villa_id) == $villa->id ? 'selected' : '' }}>
                                         [{{ $villa->code }}] {{ $villa->name }} — ${{ number_format($villa->price_per_night, 0) }}/nt
                                     </option>
                                 @endforeach
@@ -150,24 +154,51 @@
 @push('scripts')
 <script>
     function calculateCharges() {
-        const inDate = new Date(document.getElementById('check_in').value);
-        const outDate = new Date(document.getElementById('check_out').value);
+        const inInput = document.getElementById('check_in').value;
+        const outInput = document.getElementById('check_out').value;
+        if (!inInput || !outInput) return;
 
-        let nights = 1;
+        const inDate = new Date(inInput + 'T00:00:00');
+        const outDate = new Date(outInput + 'T00:00:00');
+
+        let nights = 0;
+        let weekendNights = 0;
+        let accommodationTotal = 0;
+
+        const villaSelect = document.getElementById('villa_id');
+        const selectedVilla = villaSelect ? villaSelect.options[villaSelect.selectedIndex] : null;
+        const baseRate = parseFloat(document.getElementById('nightly_rate').value) || 0;
+        const weekendRate = (selectedVilla && selectedVilla.dataset.weekendPrice && parseFloat(selectedVilla.dataset.weekendPrice) > 0)
+            ? parseFloat(selectedVilla.dataset.weekendPrice)
+            : baseRate;
+
         if (outDate > inDate) {
-            const diffTime = Math.abs(outDate - inDate);
-            nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            let cur = new Date(inDate);
+            while (cur < outDate) {
+                nights++;
+                const day = cur.getDay(); // 5 = Friday, 6 = Saturday
+                if (day === 5 || day === 6) {
+                    weekendNights++;
+                    accommodationTotal += weekendRate;
+                } else {
+                    accommodationTotal += baseRate;
+                }
+                cur.setDate(cur.getDate() + 1);
+            }
+        } else {
+            nights = 1;
+            accommodationTotal = baseRate;
         }
 
-        const rate = parseFloat(document.getElementById('nightly_rate').value) || 0;
         const cleaning = parseFloat(document.getElementById('cleaning_fee').value) || 0;
         const service = parseFloat(document.getElementById('service_fee').value) || 0;
         const tax = parseFloat(document.getElementById('tax_amount').value) || 0;
 
-        const total = (nights * rate) + cleaning + service + tax;
+        const total = accommodationTotal + cleaning + service + tax;
 
         document.getElementById('total_amount').value = total.toFixed(2);
-        document.getElementById('displayTotalStay').innerText = `${nights} Nights • $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+        const weekendInfo = weekendNights > 0 ? ` (${weekendNights} Weekend nt @ $${weekendRate.toLocaleString('en-US')})` : '';
+        document.getElementById('displayTotalStay').innerText = `${nights} Nights${weekendInfo} • $${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
         document.getElementById('displayPayable').innerText = total.toLocaleString('en-US', {minimumFractionDigits: 2});
     }
 

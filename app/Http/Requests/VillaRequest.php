@@ -44,6 +44,7 @@ class VillaRequest extends FormRequest
             'description' => ['nullable', 'string'],
             'amenities' => ['nullable', 'array'],
             'amenities.*' => ['string'],
+            'featured_image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
             'is_featured' => ['nullable', 'boolean'],
         ];
     }

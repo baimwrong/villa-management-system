@@ -24,6 +24,29 @@
     </div>
 </div>
 
+@if($overdueCheckOuts->isNotEmpty())
+    <div class="alert alert-danger d-flex align-items-center justify-content-between shadow-sm mb-4" role="alert">
+        <div class="d-flex align-items-center gap-3">
+            <div class="rounded-circle bg-white text-danger p-2 fs-5">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div>
+                <span class="fw-bold d-block fs-6">Overstay Alert: {{ $overdueCheckOuts->count() }} In-House Guest(s) Past Scheduled Check-Out</span>
+                <span class="small text-danger-emphasis">
+                    Departure dates have passed but checkout has not been processed. Stays must be settled before turnovers can begin.
+                </span>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            @foreach($overdueCheckOuts->take(3) as $overdue)
+                <a href="{{ route('bookings.show', $overdue) }}" class="btn btn-sm btn-dark text-nowrap">
+                    [{{ $overdue->villa->code }}] {{ $overdue->guest->last_name }}
+                </a>
+            @endforeach
+        </div>
+    </div>
+@endif
+
 <!-- Key Performance Metrics -->
 <div class="row g-3 mb-4">
     <div class="col-xl-3 col-sm-6">

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\BookingRequest;
 use App\Models\Booking;
+use App\Models\BookingCharge;
 use App\Models\Guest;
 use App\Models\MaintenanceTask;
 use App\Models\Payment;
@@ -24,16 +25,18 @@ class BookingController extends Controller
 
         if ($request->filled('search')) {
             $term = $request->string('search');
-            $query->where(function ($q) use ($term): void {
-                $q->where('booking_code', 'like', "%{$term}%")
-                    ->orWhereHas('guest', function ($g) use ($term): void {
-                        $g->where('first_name', 'like', "%{$term}%")
-                            ->orWhere('last_name', 'like', "%{$term}%")
-                            ->orWhere('email', 'like', "%{$term}%");
+            $operator = DB::getDriverName() === 'pgsql' ? 'ilike' : 'like';
+
+            $query->where(function ($q) use ($term, $operator): void {
+                $q->where('booking_code', $operator, "%{$term}%")
+                    ->orWhereHas('guest', function ($g) use ($term, $operator): void {
+                        $g->where('first_name', $operator, "%{$term}%")
+                            ->orWhere('last_name', $operator, "%{$term}%")
+                            ->orWhere('email', $operator, "%{$term}%");
                     })
-                    ->orWhereHas('villa', function ($v) use ($term): void {
-                        $v->where('name', 'like', "%{$term}%")
-                            ->orWhere('code', 'like', "%{$term}%");
+                    ->orWhereHas('villa', function ($v) use ($term, $operator): void {
+                        $v->where('name', $operator, "%{$term}%")
+                            ->orWhere('code', $operator, "%{$term}%");
                     });
             });
         }
@@ -60,6 +63,58 @@ class BookingController extends Controller
         ]);
     }
 
+    public function calendar(Request $request): View
+    {
+        $month = (int) $request->input('month', now()->month);
+        $year = (int) $request->input('year', now()->year);
+
+        $currentDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
+        $startOfMonth = $currentDate->copy()->startOfMonth();
+        $endOfMonth = $currentDate->copy()->endOfMonth();
+
+        $prevMonthDate = $currentDate->copy()->subMonth();
+        $nextMonthDate = $currentDate->copy()->addMonth();
+
+        $daysInMonth = [];
+        $temp = $startOfMonth->copy();
+        while ($temp->lte($endOfMonth)) {
+            $daysInMonth[] = [
+                'date' => $temp->toDateString(),
+                'day' => $temp->day,
+                'dayName' => $temp->format('D'),
+                'isWeekend' => $temp->isFriday() || $temp->isSaturday(),
+                'isToday' => $temp->isToday(),
+            ];
+            $temp->addDay();
+        }
+
+        $villas = Villa::orderBy('code')->get();
+
+        $bookings = Booking::with('guest')
+            ->whereNotIn('status', [Booking::STATUS_CANCELLED, Booking::STATUS_NO_SHOW])
+            ->whereDate('check_in', '<=', $endOfMonth->toDateString())
+            ->whereDate('check_out', '>=', $startOfMonth->toDateString())
+            ->get();
+
+        $villaBookings = [];
+        foreach ($villas as $villa) {
+            $villaBookings[$villa->id] = $bookings->where('villa_id', $villa->id)->values();
+        }
+
+        return view('bookings.calendar', [
+            'villas' => $villas,
+            'daysInMonth' => $daysInMonth,
+            'villaBookings' => $villaBookings,
+            'currentMonth' => $month,
+            'currentYear' => $year,
+            'monthName' => $currentDate->format('F Y'),
+            'prevMonth' => $prevMonthDate->month,
+            'prevYear' => $prevMonthDate->year,
+            'nextMonth' => $nextMonthDate->month,
+            'nextYear' => $nextMonthDate->year,
+        ]);
+    }
+
     public function create(Request $request): View
     {
         $villas = Villa::orderBy('code')->get();
@@ -80,30 +135,21 @@ class BookingController extends Controller
         $checkIn = Carbon::parse($validated['check_in'])->startOfDay();
         $checkOut = Carbon::parse($validated['check_out'])->startOfDay();
 
-        // Check for double booking conflicts
-        $hasOverlap = Booking::overlapping(
-            (int) $validated['villa_id'],
-            $checkIn->toDateString(),
-            $checkOut->toDateString()
-        )->exists();
-
-        if ($hasOverlap) {
-            return back()->withInput()
-                ->withErrors(['check_in' => 'The selected villa is already booked or occupied during these dates.'])
-                ->with('error', 'The selected villa is already booked or occupied during these dates.');
-        }
-
         $nights = max(1, $checkIn->diffInDays($checkOut));
         $validated['total_nights'] = $nights;
         $validated['booking_code'] = 'BK-'.date('Y').'-'.strtoupper(Str::random(5));
         $validated['user_id'] = Auth::id();
 
-        // Calculate total_amount strictly server-side to prevent client-side price tampering
+        // Calculate total_amount strictly server-side factoring in weekend pricing if defined
+        $villaModel = Villa::findOrFail((int) $validated['villa_id']);
         $nightlyRate = (float) $validated['nightly_rate'];
+        $stayTariffs = $villaModel->calculateStayTotal($checkIn, $checkOut, $nightlyRate);
+        $accommodationTotal = $stayTariffs['accommodation_total'];
+
         $cleaningFee = (float) ($validated['cleaning_fee'] ?? 0);
         $serviceFee = (float) ($validated['service_fee'] ?? 0);
         $taxAmount = (float) ($validated['tax_amount'] ?? 0);
-        $totalAmount = ($nights * $nightlyRate) + $cleaningFee + $serviceFee + $taxAmount;
+        $totalAmount = $accommodationTotal + $cleaningFee + $serviceFee + $taxAmount;
         $validated['total_amount'] = $totalAmount;
 
         $paidAmount = min($totalAmount, (float) ($validated['paid_amount'] ?? 0));
@@ -113,31 +159,51 @@ class BookingController extends Controller
             ? Booking::PAYMENT_PAID
             : ($paidAmount > 0 ? Booking::PAYMENT_PARTIAL : Booking::PAYMENT_PENDING);
 
-        $booking = DB::transaction(function () use ($validated, $paidAmount, $request) {
-            $booking = Booking::create($validated);
+        try {
+            $booking = DB::transaction(function () use ($validated, $paidAmount, $request, $checkIn, $checkOut) {
+                // Pessimistic lock on the target villa row to serialize concurrent booking attempts
+                $villa = Villa::where('id', (int) $validated['villa_id'])->lockForUpdate()->firstOrFail();
 
-            // Record initial payment if provided
-            if ($paidAmount > 0) {
-                Payment::create([
-                    'booking_id' => $booking->id,
-                    'transaction_reference' => 'TXN-'.strtoupper(Str::random(10)),
-                    'amount' => $paidAmount,
-                    'payment_method' => $request->input('payment_method', Payment::METHOD_CREDIT_CARD),
-                    'payment_date' => now(),
-                    'status' => Payment::STATUS_COMPLETED,
-                    'notes' => 'Initial booking payment',
-                ]);
+                // Check for double booking conflicts within the locked transaction
+                $hasOverlap = Booking::overlapping(
+                    $villa->id,
+                    $checkIn->toDateString(),
+                    $checkOut->toDateString()
+                )->exists();
 
-                $booking->guest->syncLifetimeMetrics();
-            }
+                if ($hasOverlap) {
+                    throw new \DomainException('The selected villa is already booked or occupied during these dates.');
+                }
 
-            // Update villa status if checked in
-            if ($booking->status === Booking::STATUS_CHECKED_IN) {
-                $booking->villa->update(['status' => Villa::STATUS_OCCUPIED]);
-            }
+                $booking = Booking::create($validated);
 
-            return $booking;
-        });
+                // Record initial payment if provided
+                if ($paidAmount > 0) {
+                    Payment::create([
+                        'booking_id' => $booking->id,
+                        'transaction_reference' => 'TXN-'.strtoupper(Str::random(10)),
+                        'amount' => $paidAmount,
+                        'payment_method' => $request->input('payment_method', Payment::METHOD_CREDIT_CARD),
+                        'payment_date' => now(),
+                        'status' => Payment::STATUS_COMPLETED,
+                        'notes' => 'Initial booking payment',
+                    ]);
+
+                    $booking->guest->syncLifetimeMetrics();
+                }
+
+                // Update villa status if checked in
+                if ($booking->status === Booking::STATUS_CHECKED_IN) {
+                    $villa->update(['status' => Villa::STATUS_OCCUPIED]);
+                }
+
+                return $booking;
+            });
+        } catch (\DomainException $e) {
+            return back()->withInput()
+                ->withErrors(['check_in' => $e->getMessage()])
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('bookings.show', $booking)
             ->with('success', "Reservation {$booking->booking_code} confirmed successfully.");
@@ -145,7 +211,7 @@ class BookingController extends Controller
 
     public function show(Booking $booking): View
     {
-        $booking->load(['villa', 'guest', 'user', 'payments' => fn ($q) => $q->latest()]);
+        $booking->load(['villa', 'guest', 'user', 'payments' => fn ($q) => $q->latest(), 'extraCharges.creator']);
 
         return view('bookings.show', [
             'booking' => $booking,
@@ -171,38 +237,48 @@ class BookingController extends Controller
         $checkIn = Carbon::parse($validated['check_in'])->startOfDay();
         $checkOut = Carbon::parse($validated['check_out'])->startOfDay();
 
-        // Check for conflicts
-        $hasOverlap = Booking::overlapping(
-            (int) $validated['villa_id'],
-            $checkIn->toDateString(),
-            $checkOut->toDateString(),
-            $booking->id
-        )->exists();
-
-        if ($hasOverlap) {
-            return back()->withInput()
-                ->withErrors(['check_in' => 'Date conflict: The selected villa is already booked during these dates.'])
-                ->with('error', 'Date conflict: The selected villa is already booked during these dates.');
-        }
-
         $nights = max(1, $checkIn->diffInDays($checkOut));
         $validated['total_nights'] = $nights;
 
-        // Recalculate total_amount server-side
+        // Recalculate total_amount server-side factoring in weekend pricing if defined
+        $villaModel = Villa::findOrFail((int) $validated['villa_id']);
         $nightlyRate = (float) $validated['nightly_rate'];
+        $stayTariffs = $villaModel->calculateStayTotal($checkIn, $checkOut, $nightlyRate);
+        $accommodationTotal = $stayTariffs['accommodation_total'];
+
         $cleaningFee = (float) ($validated['cleaning_fee'] ?? 0);
         $serviceFee = (float) ($validated['service_fee'] ?? 0);
         $taxAmount = (float) ($validated['tax_amount'] ?? 0);
-        $validated['total_amount'] = ($nights * $nightlyRate) + $cleaningFee + $serviceFee + $taxAmount;
+        $validated['total_amount'] = $accommodationTotal + $cleaningFee + $serviceFee + $taxAmount;
 
-        DB::transaction(function () use ($booking, $validated) {
-            $booking->update($validated);
-            $booking->recalculatePaymentStatus();
+        try {
+            DB::transaction(function () use ($booking, $validated, $checkIn, $checkOut) {
+                $villa = Villa::where('id', (int) $validated['villa_id'])->lockForUpdate()->firstOrFail();
 
-            if ($booking->status === Booking::STATUS_CHECKED_IN) {
-                $booking->villa->update(['status' => Villa::STATUS_OCCUPIED]);
-            }
-        });
+                // Check for conflicts inside pessimistic transaction lock
+                $hasOverlap = Booking::overlapping(
+                    $villa->id,
+                    $checkIn->toDateString(),
+                    $checkOut->toDateString(),
+                    $booking->id
+                )->exists();
+
+                if ($hasOverlap) {
+                    throw new \DomainException('Date conflict: The selected villa is already booked during these dates.');
+                }
+
+                $booking->update($validated);
+                $booking->recalculatePaymentStatus();
+
+                if ($booking->status === Booking::STATUS_CHECKED_IN) {
+                    $villa->update(['status' => Villa::STATUS_OCCUPIED]);
+                }
+            });
+        } catch (\DomainException $e) {
+            return back()->withInput()
+                ->withErrors(['check_in' => $e->getMessage()])
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('bookings.show', $booking)
             ->with('success', "Booking {$booking->booking_code} updated successfully.");
@@ -210,6 +286,14 @@ class BookingController extends Controller
 
     public function checkIn(Booking $booking): RedirectResponse
     {
+        if ($booking->status !== Booking::STATUS_CONFIRMED) {
+            return back()->with('error', "Cannot check in: Booking {$booking->booking_code} is currently '{$booking->status}'. Only confirmed reservations can be checked in.");
+        }
+
+        if (in_array($booking->villa->status, [Villa::STATUS_OCCUPIED, Villa::STATUS_MAINTENANCE], true)) {
+            return back()->with('error', "Cannot check in: Villa '{$booking->villa->name}' is currently {$booking->villa->status}.");
+        }
+
         DB::transaction(function () use ($booking) {
             $booking->update(['status' => Booking::STATUS_CHECKED_IN]);
             $booking->villa->update(['status' => Villa::STATUS_OCCUPIED]);
@@ -220,6 +304,10 @@ class BookingController extends Controller
 
     public function checkOut(Booking $booking): RedirectResponse
     {
+        if ($booking->status !== Booking::STATUS_CHECKED_IN) {
+            return back()->with('error', "Cannot check out: Booking {$booking->booking_code} is not currently checked in (status: '{$booking->status}').");
+        }
+
         DB::transaction(function () use ($booking) {
             $booking->update(['status' => Booking::STATUS_CHECKED_OUT]);
 
@@ -242,11 +330,24 @@ class BookingController extends Controller
             $booking->guest->syncLifetimeMetrics();
         });
 
-        return back()->with('success', "Guest checked out. Villa status changed to 'Cleaning' and housekeeping task assigned.");
+        $message = "Guest checked out. Villa status changed to 'Cleaning' and housekeeping task assigned.";
+        if ((float) $booking->balance_due > 0) {
+            return back()->with('warning', $message.' NOTE: Guest has an unsettled balance of $'.number_format($booking->balance_due, 2).'.');
+        }
+
+        return back()->with('success', $message);
     }
 
     public function cancel(Request $request, Booking $booking): RedirectResponse
     {
+        if (in_array($booking->status, [Booking::STATUS_CHECKED_OUT, Booking::STATUS_CANCELLED], true)) {
+            return back()->with('error', "Booking {$booking->booking_code} is already {$booking->status}.");
+        }
+
+        if ($booking->status === Booking::STATUS_CHECKED_IN) {
+            return back()->with('error', 'Cannot cancel an active stay where the guest is already checked in. Please process checkout instead.');
+        }
+
         $request->validate([
             'cancellation_reason' => ['required', 'string', 'max:500'],
         ]);
@@ -257,8 +358,8 @@ class BookingController extends Controller
                 'cancellation_reason' => $request->string('cancellation_reason'),
             ]);
 
-            // If villa was occupied by this booking, restore it
-            if ($booking->villa->status === Villa::STATUS_OCCUPIED) {
+            // If villa was occupied or reserved by this booking, restore it
+            if ($booking->villa->status === Villa::STATUS_OCCUPIED || $booking->villa->status === Villa::STATUS_RESERVED) {
                 $booking->villa->update(['status' => Villa::STATUS_AVAILABLE]);
             }
         });
@@ -294,11 +395,55 @@ class BookingController extends Controller
 
     public function invoice(Booking $booking): View
     {
-        $booking->load(['villa', 'guest', 'user', 'payments']);
+        $booking->load(['villa', 'guest', 'user', 'payments', 'extraCharges.creator']);
 
         return view('bookings.invoice', [
             'booking' => $booking,
         ]);
+    }
+
+    public function addCharge(Request $request, Booking $booking): RedirectResponse
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'category' => ['required', 'string', 'in:dining,spa,transportation,experience,damage,other'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:50000'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        DB::transaction(function () use ($booking, $validated) {
+            $booking->extraCharges()->create([
+                'title' => $validated['title'],
+                'category' => $validated['category'],
+                'amount' => (float) $validated['amount'],
+                'charged_at' => now(),
+                'notes' => $validated['notes'] ?? null,
+                'created_by' => Auth::id(),
+            ]);
+
+            // Add charge to total_amount and recalculate balance
+            $booking->total_amount = (float) $booking->total_amount + (float) $validated['amount'];
+            $booking->recalculatePaymentStatus();
+        });
+
+        return back()->with('success', "Incidental charge '{$validated['title']}' of $".number_format($validated['amount'], 2).' posted to guest folio.');
+    }
+
+    public function destroyCharge(Booking $booking, BookingCharge $charge): RedirectResponse
+    {
+        if ($charge->booking_id !== $booking->id) {
+            abort(404);
+        }
+
+        DB::transaction(function () use ($booking, $charge) {
+            $amount = (float) $charge->amount;
+            $charge->delete();
+
+            $booking->total_amount = max(0, (float) $booking->total_amount - $amount);
+            $booking->recalculatePaymentStatus();
+        });
+
+        return back()->with('success', 'Incidental charge voided from folio.');
     }
 
     public function destroy(Booking $booking): RedirectResponse

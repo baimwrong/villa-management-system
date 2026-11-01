@@ -22,7 +22,7 @@
 
         <div class="card card-luxury">
             <div class="card-body p-4">
-                <form action="{{ route('villas.update', $villa) }}" method="POST">
+                <form action="{{ route('villas.update', $villa) }}" method="POST" enctype="multipart/form-data">
                     @csrf
                     @method('PUT')
 
@@ -121,6 +121,19 @@
                         <div class="col-12">
                             <label class="form-label small fw-semibold text-secondary">Description & Highlights</label>
                             <textarea name="description" rows="3" class="form-control">{{ old('description', $villa->description) }}</textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold text-secondary">Featured Villa Photograph / Cover Image</label>
+                            @if($villa->featured_image)
+                                <div class="mb-2 d-flex align-items-center gap-3">
+                                    <img src="{{ asset('storage/' . $villa->featured_image) }}" alt="{{ $villa->name }}" class="rounded shadow-sm" style="width: 120px; height: 80px; object-fit: cover;">
+                                    <span class="text-muted small">Current Cover Photo</span>
+                                </div>
+                            @endif
+                            <input type="file" name="featured_image" accept="image/jpeg,image/png,image/webp" class="form-control @error('featured_image') is-invalid @enderror">
+                            <div class="form-text small">Select a new image to replace current cover (JPEG, PNG, or WEBP, max 5MB).</div>
+                            @error('featured_image') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
                     </div>
 

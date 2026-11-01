@@ -52,6 +52,10 @@ class AuthController extends Controller
 
     public function showRegister(): View|RedirectResponse
     {
+        if (! config('auth.registration_enabled', true)) {
+            abort(403, 'Staff self-registration is disabled. Please contact your system administrator.');
+        }
+
         if (Auth::check()) {
             return redirect()->route('dashboard');
         }
@@ -61,6 +65,10 @@ class AuthController extends Controller
 
     public function register(Request $request): RedirectResponse
     {
+        if (! config('auth.registration_enabled', true)) {
+            abort(403, 'Staff self-registration is disabled. Please contact your system administrator.');
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],

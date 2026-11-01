@@ -73,6 +73,10 @@ class GuestController extends Controller
 
     public function destroy(Guest $guest): RedirectResponse
     {
+        if ($guest->bookings()->exists()) {
+            return back()->with('error', "Cannot delete guest '{$guest->full_name}' because they have associated booking and billing history. Consider archiving or updating their profile instead.");
+        }
+
         $name = $guest->full_name;
         $guest->delete();
 

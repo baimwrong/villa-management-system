@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Booking;
 use App\Models\MaintenanceTask;
 use App\Models\User;
 use App\Models\Villa;
@@ -87,5 +88,28 @@ class MaintenanceFeatureTest extends TestCase
         $this->assertEquals(MaintenanceTask::STATUS_COMPLETED, $cleaningTask->fresh()->status);
         // Villa is now cleaned and ready
         $this->assertEquals(Villa::STATUS_AVAILABLE, $villa->fresh()->status);
+    }
+
+    public function test_completing_task_on_occupied_villa_retains_occupied_status(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create(['status' => Villa::STATUS_OCCUPIED]);
+        Booking::factory()->create([
+            'villa_id' => $villa->id,
+            'status' => Booking::STATUS_CHECKED_IN,
+        ]);
+
+        $task = MaintenanceTask::factory()->create([
+            'villa_id' => $villa->id,
+            'task_type' => 'plumbing',
+            'status' => MaintenanceTask::STATUS_PENDING,
+        ]);
+
+        $response = $this->actingAs($user)->patch(route('maintenance.status', $task), [
+            'status' => MaintenanceTask::STATUS_COMPLETED,
+        ]);
+
+        $response->assertSessionHas('success');
+        $this->assertEquals(Villa::STATUS_OCCUPIED, $villa->fresh()->status);
     }
 }

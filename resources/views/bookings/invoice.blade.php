@@ -155,6 +155,20 @@
                             <td class="text-end fw-semibold">${{ number_format($booking->tax_amount, 2) }}</td>
                         </tr>
                     @endif
+                    @foreach($booking->extraCharges as $charge)
+                        <tr>
+                            <td>
+                                <strong>{{ $charge->title }}</strong>
+                                <span class="badge bg-light text-dark border ms-1 text-capitalize" style="font-size: 0.7rem;">{{ $charge->category }}</span>
+                                @if($charge->notes)
+                                    <div class="text-muted small">{{ $charge->notes }}</div>
+                                @endif
+                            </td>
+                            <td class="text-center">${{ number_format($charge->amount, 2) }}</td>
+                            <td class="text-center">1</td>
+                            <td class="text-end fw-semibold">${{ number_format($charge->amount, 2) }}</td>
+                        </tr>
+                    @endforeach
                 </tbody>
                 <tfoot>
                     <tr>

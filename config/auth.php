@@ -114,4 +114,16 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Staff Registration Enabled
+    |--------------------------------------------------------------------------
+    |
+    | Controls whether new staff accounts can be self-registered. When false,
+    | public registration is completely disabled for production security.
+    |
+    */
+
+    'registration_enabled' => env('AUTH_REGISTRATION_ENABLED', true),
+
 ];

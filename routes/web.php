@@ -36,6 +36,7 @@ Route::middleware(['auth'])->group(function (): void {
     Route::patch('/villas/{villa}/status', [VillaController::class, 'updateStatus'])->name('villas.status');
 
     // Bookings
+    Route::get('/bookings/calendar', [BookingController::class, 'calendar'])->name('bookings.calendar');
     Route::resource('bookings', BookingController::class)->except(['destroy']);
     Route::delete('/bookings/{booking}', [BookingController::class, 'destroy'])->name('bookings.destroy')->middleware('role:admin');
     Route::post('/bookings/{booking}/check-in', [BookingController::class, 'checkIn'])->name('bookings.check-in');
@@ -43,6 +44,8 @@ Route::middleware(['auth'])->group(function (): void {
     Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
     Route::post('/bookings/{booking}/payments', [BookingController::class, 'addPayment'])->name('bookings.payments.store');
     Route::get('/bookings/{booking}/invoice', [BookingController::class, 'invoice'])->name('bookings.invoice');
+    Route::post('/bookings/{booking}/charges', [BookingController::class, 'addCharge'])->name('bookings.charges.store');
+    Route::delete('/bookings/{booking}/charges/{charge}', [BookingController::class, 'destroyCharge'])->name('bookings.charges.destroy');
 
     // Guests
     Route::resource('guests', GuestController::class)->except(['destroy']);

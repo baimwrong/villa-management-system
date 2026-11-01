@@ -31,7 +31,7 @@ class VillaFactory extends Factory
             'max_guests' => fake()->numberBetween(2, 12),
             'area_sqm' => fake()->numberBetween(150, 700),
             'price_per_night' => fake()->randomFloat(2, 500, 3000),
-            'weekend_price_per_night' => fake()->randomFloat(2, 600, 3500),
+            'weekend_price_per_night' => null,
             'cleaning_fee' => fake()->randomFloat(2, 50, 200),
             'security_deposit' => fake()->randomFloat(2, 200, 1000),
             'status' => Villa::STATUS_AVAILABLE,

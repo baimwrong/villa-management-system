@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Database\Factories\VillaFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -126,5 +128,48 @@ class Villa extends Model
             self::STATUS_RESERVED => 'bg-info text-dark',
             default => 'bg-secondary',
         };
+    }
+
+    /**
+     * Calculate stay tariffs distinguishing between standard weekday and premium weekend nights.
+     *
+     * @return array{nights: int, weekday_nights: int, weekend_nights: int, accommodation_total: float, effective_nightly_rate: float}
+     */
+    public function calculateStayTotal(CarbonInterface|string $checkIn, CarbonInterface|string $checkOut, ?float $customBaseRate = null): array
+    {
+        $current = Carbon::parse($checkIn)->startOfDay();
+        $end = Carbon::parse($checkOut)->startOfDay();
+        $totalNights = max(1, $current->diffInDays($end));
+
+        $weekdayNights = 0;
+        $weekendNights = 0;
+        $accommodationTotal = 0.0;
+
+        $baseRate = $customBaseRate !== null && $customBaseRate > 0 ? $customBaseRate : (float) $this->price_per_night;
+        $weekendRate = $this->weekend_price_per_night !== null && (float) $this->weekend_price_per_night > 0
+            ? (float) $this->weekend_price_per_night
+            : $baseRate;
+
+        while ($current->lt($end)) {
+            // Friday and Saturday nights are standard hospitality weekend rates
+            if ($current->isFriday() || $current->isSaturday()) {
+                $weekendNights++;
+                $accommodationTotal += $weekendRate;
+            } else {
+                $weekdayNights++;
+                $accommodationTotal += $baseRate;
+            }
+            $current->addDay();
+        }
+
+        $effectiveRate = $totalNights > 0 ? round($accommodationTotal / $totalNights, 2) : $baseRate;
+
+        return [
+            'nights' => $totalNights,
+            'weekday_nights' => $weekdayNights,
+            'weekend_nights' => $weekendNights,
+            'accommodation_total' => round($accommodationTotal, 2),
+            'effective_nightly_rate' => $effectiveRate,
+        ];
     }
 }

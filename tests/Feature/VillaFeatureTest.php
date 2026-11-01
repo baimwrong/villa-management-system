@@ -2,9 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Booking;
 use App\Models\User;
 use App\Models\Villa;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class VillaFeatureTest extends TestCase
@@ -66,5 +69,42 @@ class VillaFeatureTest extends TestCase
 
         $response->assertSessionHas('success');
         $this->assertEquals('cleaning', $villa->fresh()->status);
+    }
+
+    public function test_villa_with_bookings_cannot_be_deleted(): void
+    {
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $villa = Villa::factory()->create();
+        Booking::factory()->create(['villa_id' => $villa->id]);
+
+        $response = $this->actingAs($admin)->delete(route('villas.destroy', $villa));
+
+        $response->assertSessionHas('error');
+        $this->assertDatabaseHas('villas', ['id' => $villa->id]);
+    }
+
+    public function test_user_can_create_a_luxury_villa_with_image_upload(): void
+    {
+        Storage::fake('public');
+        $user = User::factory()->create();
+        $file = UploadedFile::fake()->create('villa_cliffside.jpg', 500, 'image/jpeg');
+
+        $response = $this->actingAs($user)->post(route('villas.store'), [
+            'code' => 'VIL-777',
+            'name' => 'The Celestial Pinnacle',
+            'category' => 'Cliffside',
+            'bedrooms' => 6,
+            'bathrooms' => 7,
+            'max_guests' => 12,
+            'price_per_night' => 3500.00,
+            'status' => 'available',
+            'location' => 'Sunset Ridge',
+            'featured_image' => $file,
+        ]);
+
+        $villa = Villa::where('code', 'VIL-777')->first();
+        $this->assertNotNull($villa);
+        $this->assertNotNull($villa->featured_image);
+        Storage::disk('public')->assertExists($villa->featured_image);
     }
 }

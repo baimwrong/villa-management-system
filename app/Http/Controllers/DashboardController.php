@@ -65,6 +65,12 @@ class DashboardController extends Controller
             ->whereIn('status', [Booking::STATUS_CHECKED_IN, Booking::STATUS_CHECKED_OUT])
             ->get();
 
+        // Overstay Alerts: Still checked-in past scheduled check-out date
+        $overdueCheckOuts = Booking::with(['villa', 'guest'])
+            ->whereDate('check_out', '<', $today)
+            ->where('status', Booking::STATUS_CHECKED_IN)
+            ->get();
+
         // Recent bookings
         $recentBookings = Booking::with(['villa', 'guest'])
             ->latest()
@@ -93,6 +99,7 @@ class DashboardController extends Controller
             'currentMonthRevenue' => $currentMonthRevenue,
             'todayCheckIns' => $todayCheckIns,
             'todayCheckOuts' => $todayCheckOuts,
+            'overdueCheckOuts' => $overdueCheckOuts,
             'recentBookings' => $recentBookings,
             'urgentTasks' => $urgentTasks,
             'allVillas' => $allVillas,

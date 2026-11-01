@@ -80,6 +80,12 @@
                         </span>
                     </div>
 
+                    @if($villa->featured_image)
+                        <div class="position-relative overflow-hidden" style="height: 180px;">
+                            <img src="{{ asset('storage/' . $villa->featured_image) }}" alt="{{ $villa->name }}" class="w-100 h-100" style="object-fit: cover;">
+                        </div>
+                    @endif
+
                     <div class="p-4">
                         <h5 class="fw-bold mb-1">
                             <a href="{{ route('villas.show', $villa) }}" class="text-decoration-none text-dark">

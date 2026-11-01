@@ -17,7 +17,7 @@
 
         <div class="card card-luxury">
             <div class="card-body p-4">
-                <form action="{{ route('villas.store') }}" method="POST">
+                <form action="{{ route('villas.store') }}" method="POST" enctype="multipart/form-data">
                     @csrf
 
                     <h5 class="fw-bold text-dark border-bottom pb-2 mb-3">1. Identification & Category</h5>
@@ -120,6 +120,13 @@
                         <div class="col-12">
                             <label class="form-label small fw-semibold text-secondary">Description & Highlights</label>
                             <textarea name="description" rows="3" class="form-control" placeholder="Describe the architectural design, views, and unique luxuries of this villa...">{{ old('description') }}</textarea>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-semibold text-secondary">Featured Villa Photograph / Cover Image</label>
+                            <input type="file" name="featured_image" accept="image/jpeg,image/png,image/webp" class="form-control @error('featured_image') is-invalid @enderror">
+                            <div class="form-text small">Upload luxury high-resolution image (JPEG, PNG, or WEBP, max 5MB).</div>
+                            @error('featured_image') <div class="invalid-feedback">{{ $message }}</div> @enderror
                         </div>
                     </div>
 

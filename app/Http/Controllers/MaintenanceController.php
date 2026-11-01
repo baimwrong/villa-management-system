@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\MaintenanceTaskRequest;
+use App\Models\Booking;
 use App\Models\MaintenanceTask;
 use App\Models\User;
 use App\Models\Villa;
@@ -124,17 +125,23 @@ class MaintenanceController extends Controller
                     ->whereIn('status', [MaintenanceTask::STATUS_PENDING, MaintenanceTask::STATUS_IN_PROGRESS])
                     ->exists();
 
-                // If villa was in cleaning, ONLY restore to available if the completed task was a cleaning task
-                if ($maintenance->villa->status === Villa::STATUS_CLEANING) {
-                    if ($maintenance->task_type === MaintenanceTask::TYPE_CLEANING && ! $hasOtherPending) {
-                        $maintenance->villa->update(['status' => Villa::STATUS_AVAILABLE]);
-                    }
-                } elseif ($maintenance->villa->status === Villa::STATUS_MAINTENANCE) {
-                    // If villa was in maintenance, restore to available if no other tasks remain pending
-                    if (! $hasOtherPending) {
+                $hasActiveStay = $maintenance->villa->bookings()
+                    ->where('status', Booking::STATUS_CHECKED_IN)
+                    ->exists();
+
+                if (! $hasOtherPending) {
+                    if ($hasActiveStay) {
+                        $maintenance->villa->update(['status' => Villa::STATUS_OCCUPIED]);
+                    } elseif ($maintenance->villa->status === Villa::STATUS_CLEANING) {
+                        if ($maintenance->task_type === MaintenanceTask::TYPE_CLEANING) {
+                            $maintenance->villa->update(['status' => Villa::STATUS_AVAILABLE]);
+                        }
+                    } elseif ($maintenance->villa->status === Villa::STATUS_MAINTENANCE) {
                         $maintenance->villa->update(['status' => Villa::STATUS_AVAILABLE]);
                     }
                 }
+            } else {
+                $updateData['completed_at'] = null;
             }
 
             $maintenance->update($updateData);

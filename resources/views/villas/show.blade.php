@@ -31,6 +31,12 @@
     </div>
 </div>
 
+@if($villa->featured_image)
+    <div class="card card-luxury overflow-hidden mb-4 p-0 shadow-sm" style="max-height: 380px;">
+        <img src="{{ asset('storage/' . $villa->featured_image) }}" alt="{{ $villa->name }}" class="w-100" style="object-fit: cover; max-height: 380px;">
+    </div>
+@endif
+
 <!-- Active Guest Alert (if occupied) -->
 @if($activeBooking)
     <div class="alert alert-primary d-flex align-items-center justify-content-between shadow-sm mb-4" role="alert">

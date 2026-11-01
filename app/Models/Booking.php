@@ -97,6 +97,11 @@ class Booking extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function extraCharges(): HasMany
+    {
+        return $this->hasMany(BookingCharge::class);
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereIn('status', [self::STATUS_CONFIRMED, self::STATUS_CHECKED_IN]);

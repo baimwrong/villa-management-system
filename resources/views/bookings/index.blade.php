@@ -8,7 +8,15 @@
         <h3 class="fw-bold mb-1 text-dark">Reservations & Guest Stays</h3>
         <p class="text-muted small mb-0">Manage guest bookings, check-ins, payments, and turnover schedules.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex align-items-center gap-2">
+        <div class="btn-group btn-group-sm">
+            <a href="{{ route('bookings.index') }}" class="btn btn-dark active">
+                <i class="fa-solid fa-list me-1"></i> List
+            </a>
+            <a href="{{ route('bookings.calendar') }}" class="btn btn-outline-secondary">
+                <i class="fa-solid fa-calendar-days me-1"></i> Tape Chart
+            </a>
+        </div>
         <a href="{{ route('bookings.create') }}" class="btn btn-gold btn-sm d-flex align-items-center gap-2">
             <i class="fa-solid fa-calendar-plus"></i>
             <span>New Reservation</span>

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Booking;
 use App\Models\Guest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,11 +29,13 @@ class GuestFeatureTest extends TestCase
         $vvipGuest = Guest::factory()->create([
             'first_name' => 'Alexander',
             'last_name' => 'Sterling',
+            'nationality' => 'British',
             'vip_level' => 'vvip',
         ]);
         $standardGuest = Guest::factory()->create([
             'first_name' => 'Elena',
             'last_name' => 'Rostova',
+            'nationality' => 'Russian',
             'vip_level' => 'standard',
         ]);
 
@@ -114,6 +117,18 @@ class GuestFeatureTest extends TestCase
         $response = $this->actingAs($staff)->delete(route('guests.destroy', $guest));
 
         $response->assertStatus(403);
+        $this->assertDatabaseHas('guests', ['id' => $guest->id]);
+    }
+
+    public function test_guest_with_bookings_cannot_be_deleted(): void
+    {
+        $manager = User::factory()->create(['role' => User::ROLE_MANAGER]);
+        $guest = Guest::factory()->create();
+        Booking::factory()->create(['guest_id' => $guest->id]);
+
+        $response = $this->actingAs($manager)->delete(route('guests.destroy', $guest));
+
+        $response->assertSessionHas('error');
         $this->assertDatabaseHas('guests', ['id' => $guest->id]);
     }
 }

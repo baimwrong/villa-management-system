@@ -218,4 +218,144 @@ class BookingFeatureTest extends TestCase
             'total_amount' => 1.00,
         ]);
     }
+
+    public function test_cannot_check_in_unconfirmed_or_when_villa_occupied(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create(['status' => Villa::STATUS_OCCUPIED]);
+        $booking = Booking::factory()->create([
+            'villa_id' => $villa->id,
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        // Attempt check-in while villa is already occupied
+        $response = $this->actingAs($user)->post(route('bookings.check-in', $booking));
+        $response->assertSessionHas('error');
+        $this->assertEquals(Booking::STATUS_CONFIRMED, $booking->fresh()->status);
+
+        // Attempt check-in on a cancelled booking
+        $villa->update(['status' => Villa::STATUS_AVAILABLE]);
+        $booking->update(['status' => Booking::STATUS_CANCELLED]);
+
+        $response = $this->actingAs($user)->post(route('bookings.check-in', $booking));
+        $response->assertSessionHas('error');
+        $this->assertEquals(Booking::STATUS_CANCELLED, $booking->fresh()->status);
+    }
+
+    public function test_cannot_cancel_active_stay_with_guest_in_house(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create(['status' => Villa::STATUS_OCCUPIED]);
+        $booking = Booking::factory()->create([
+            'villa_id' => $villa->id,
+            'status' => Booking::STATUS_CHECKED_IN,
+        ]);
+
+        $response = $this->actingAs($user)->post(route('bookings.cancel', $booking), [
+            'cancellation_reason' => 'Guest wants to leave early',
+        ]);
+
+        $response->assertSessionHas('error');
+        $this->assertEquals(Booking::STATUS_CHECKED_IN, $booking->fresh()->status);
+        $this->assertEquals(Villa::STATUS_OCCUPIED, $villa->fresh()->status);
+    }
+
+    public function test_booking_applies_weekend_rate_pricing_for_weekend_nights(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create([
+            'price_per_night' => 1000.00,
+            'weekend_price_per_night' => 1500.00,
+        ]);
+        $guest = Guest::factory()->create();
+
+        // Friday 2026-11-06 to Sunday 2026-11-08 (2 weekend nights: Fri & Sat @ 1500 = 3000)
+        $response = $this->actingAs($user)->post(route('bookings.store'), [
+            'villa_id' => $villa->id,
+            'guest_id' => $guest->id,
+            'check_in' => '2026-11-06',
+            'check_out' => '2026-11-08',
+            'adults' => 2,
+            'nightly_rate' => 1000.00,
+            'cleaning_fee' => 100.00,
+            'service_fee' => 50.00,
+            'tax_amount' => 50.00,
+            'total_amount' => 3200.00,
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertDatabaseHas('bookings', [
+            'villa_id' => $villa->id,
+            'total_nights' => 2,
+            'total_amount' => 3200.00,
+        ]);
+    }
+
+    public function test_user_can_post_and_void_incidental_charge_to_folio(): void
+    {
+        $user = User::factory()->create();
+        $booking = Booking::factory()->create([
+            'total_amount' => 2000.00,
+            'paid_amount' => 2000.00,
+            'balance_due' => 0.00,
+            'payment_status' => Booking::PAYMENT_PAID,
+        ]);
+        Payment::factory()->create([
+            'booking_id' => $booking->id,
+            'amount' => 2000.00,
+            'status' => Payment::STATUS_COMPLETED,
+        ]);
+
+        // Post In-Villa Dining charge of $350
+        $response = $this->actingAs($user)->post(route('bookings.charges.store', $booking), [
+            'title' => 'Vintage Wine & Private Dining',
+            'category' => 'dining',
+            'amount' => 350.00,
+            'notes' => 'Room service delivered at 20:30',
+        ]);
+
+        $response->assertSessionHas('success');
+        $this->assertDatabaseHas('booking_charges', [
+            'booking_id' => $booking->id,
+            'title' => 'Vintage Wine & Private Dining',
+            'amount' => 350.00,
+        ]);
+
+        $booking->refresh();
+        $this->assertEquals(2350.00, (float) $booking->total_amount);
+        $this->assertEquals(350.00, (float) $booking->balance_due);
+        $this->assertEquals(Booking::PAYMENT_PARTIAL, $booking->payment_status);
+
+        // Void the charge
+        $charge = $booking->extraCharges()->first();
+        $voidResponse = $this->actingAs($user)->delete(route('bookings.charges.destroy', [$booking, $charge]));
+
+        $voidResponse->assertSessionHas('success');
+        $this->assertDatabaseMissing('booking_charges', ['id' => $charge->id]);
+
+        $booking->refresh();
+        $this->assertEquals(2000.00, (float) $booking->total_amount);
+        $this->assertEquals(0.00, (float) $booking->balance_due);
+        $this->assertEquals(Booking::PAYMENT_PAID, $booking->payment_status);
+    }
+
+    public function test_user_can_view_tape_chart_calendar(): void
+    {
+        $user = User::factory()->create();
+        $villa = Villa::factory()->create(['name' => 'Sunset Ocean Villa']);
+        $booking = Booking::factory()->create([
+            'villa_id' => $villa->id,
+            'check_in' => '2026-11-05',
+            'check_out' => '2026-11-10',
+            'status' => Booking::STATUS_CONFIRMED,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('bookings.calendar', ['month' => 11, 'year' => 2026]));
+
+        $response->assertStatus(200);
+        $response->assertSee('Tape Chart');
+        $response->assertSee('Sunset Ocean Villa');
+        $response->assertSee($booking->booking_code);
+    }
 }
